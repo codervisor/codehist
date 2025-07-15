@@ -35,6 +35,8 @@ vscode_paths = [
 
 ### Dependency Management
 ```bash
+uv venv                                       # Create virtual environment if not exists
+source .venv/bin/activate                     # Activate virtual environment
 uv sync                                       # Install dependencies
 uv add <package>                             # Add new dependency
 uv remove <package>                          # Remove dependency
@@ -44,6 +46,8 @@ uv remove <package>                          # Remove dependency
 
 ### Testing Commands
 ```bash
+uv venv                                       # Create virtual environment if not exists
+source .venv/bin/activate                     # Activate virtual environment
 uv run python -m codehist stats              # Show session count
 uv run python -m codehist search "docker"    # Test search
 uv run python -m codehist chat -o test.json  # Export validation
