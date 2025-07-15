@@ -40,6 +40,11 @@ python -m codehist search "docker"    # Test search
 python -m codehist chat -o test.json  # Export validation
 ```
 
+### File Organization
+- **Temporary Files**: Use `tmp/` folder for all temporary scripts, data files, and test outputs
+- **Git Ignore**: The `tmp/` folder is not committed to git - safe for experiments and debugging
+- **Examples**: `tmp/test_output.json`, `tmp/debug_script.py`, `tmp/sample_sessions/`
+
 ## Key Constraints
 
 - **No SQLite**: Recently removed - focus on JSON parsing only
