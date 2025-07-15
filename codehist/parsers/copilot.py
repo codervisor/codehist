@@ -8,7 +8,7 @@ JSON storage files to extract actual conversation history.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from ..models import ChatSession, Message, WorkspaceData
@@ -21,6 +21,48 @@ class CopilotParser:
     
     def __init__(self):
         self.logger = logger
+    
+    def _build_workspace_mapping(self, base_path: Path) -> Dict[str, str]:
+        """Build mapping from workspace storage directory to actual workspace path"""
+        workspace_mapping = {}
+        
+        try:
+            workspace_storage_path = base_path / "workspaceStorage"
+            if not workspace_storage_path.exists():
+                return workspace_mapping
+            
+            # Iterate through each workspace storage directory
+            for workspace_dir in workspace_storage_path.iterdir():
+                if workspace_dir.is_dir():
+                    workspace_json = workspace_dir / "workspace.json"
+                    if workspace_json.exists():
+                        try:
+                            with open(workspace_json, 'r', encoding='utf-8') as f:
+                                workspace_data = json.load(f)
+                            
+                            folder_uri = workspace_data.get('folder', '')
+                            if folder_uri.startswith('file://'):
+                                folder_path = folder_uri[7:]  # Remove file:// prefix
+                                
+                                # Use the full path as the workspace identifier
+                                # This provides complete context and eliminates any possibility of collisions
+                                workspace_mapping[workspace_dir.name] = folder_path
+                                self.logger.debug(f"Mapped workspace {workspace_dir.name} -> {folder_path}")
+                            
+                            # Handle workspace files that reference other workspace files
+                            elif workspace_data.get('workspace'):
+                                # This is a multi-root workspace, use a simplified identifier
+                                workspace_ref = workspace_data.get('workspace', '')
+                                workspace_mapping[workspace_dir.name] = f"multi-root: {workspace_ref}"
+                                self.logger.debug(f"Mapped workspace {workspace_dir.name} -> multi-root: {workspace_ref}")
+                        
+                        except Exception as e:
+                            self.logger.debug(f"Failed to read workspace.json from {workspace_json}: {e}")
+        
+        except Exception as e:
+            self.logger.error(f"Error building workspace mapping: {e}")
+        
+        return workspace_mapping
         
     def parse_chat_session(self, file_path: Path) -> Optional[ChatSession]:
         """Parse actual chat session from JSON file."""
@@ -95,25 +137,29 @@ class CopilotParser:
                         )
                         messages.append(assistant_message)
             
+            session_metadata = {
+                'version': data.get('version'),
+                'requesterUsername': data.get('requesterUsername'),
+                'responderUsername': data.get('responderUsername'),
+                'initialLocation': data.get('initialLocation'),
+                'creationDate': creation_date,
+                'lastMessageDate': last_message_date,
+                'isImported': data.get('isImported'),
+                'customTitle': data.get('customTitle'),
+                'type': 'chat_session',
+                'source_file': str(file_path),
+                'total_requests': len(data.get('requests', []))
+            }
+            
+            # Workspace will be set by the caller using workspace mapping
+            
             session = ChatSession(
                 agent="GitHub Copilot",
                 timestamp=timestamp,
                 messages=messages,
-                workspace=None,
+                workspace=None,  # Will be set by caller
                 session_id=session_id,
-                metadata={
-                    'version': data.get('version'),
-                    'requesterUsername': data.get('requesterUsername'),
-                    'responderUsername': data.get('responderUsername'),
-                    'initialLocation': data.get('initialLocation'),
-                    'creationDate': creation_date,
-                    'lastMessageDate': last_message_date,
-                    'isImported': data.get('isImported'),
-                    'customTitle': data.get('customTitle'),
-                    'type': 'chat_session',
-                    'source_file': str(file_path),
-                    'total_requests': len(data.get('requests', []))
-                }
+                metadata=session_metadata
             )
             
             self.logger.info(f"Parsed chat session {session_id} with {len(messages)} messages")
@@ -173,20 +219,24 @@ class CopilotParser:
                 )
                 messages.append(snapshot_message)
             
+            session_metadata = {
+                'version': data.get('version'),
+                'linearHistoryIndex': data.get('linearHistoryIndex'),
+                'initialFileContents': data.get('initialFileContents', []),
+                'recentSnapshot': recent_snapshot,
+                'type': 'chat_editing_session',
+                'source_file': str(file_path)
+            }
+            
+            # Workspace will be set by the caller using workspace mapping
+            
             session = ChatSession(
                 agent="GitHub Copilot",
                 timestamp=timestamp,
                 messages=messages,
-                workspace=None,
+                workspace=None,  # Will be set by caller
                 session_id=session_id,
-                metadata={
-                    'version': data.get('version'),
-                    'linearHistoryIndex': data.get('linearHistoryIndex'),
-                    'initialFileContents': data.get('initialFileContents', []),
-                    'recentSnapshot': recent_snapshot,
-                    'type': 'chat_editing_session',
-                    'source_file': str(file_path)
-                }
+                metadata=session_metadata
             )
             
             self.logger.info(f"Parsed chat editing session {session_id} with {len(messages)} entries")
@@ -257,11 +307,19 @@ class CopilotParser:
             metadata={'discovery_source': str(base_path)}
         )
         
+        # Build workspace mapping from workspace.json files
+        workspace_mapping = self._build_workspace_mapping(base_path)
+        self.logger.info(f"Built workspace mapping with {len(workspace_mapping)} workspaces")
+        
         # Look for actual chat session JSON files (new format)
         chat_session_pattern = "workspaceStorage/*/chatSessions/*.json"
         for session_file in base_path.glob(chat_session_pattern):
             session = self.parse_chat_session(session_file)
             if session:
+                # Extract workspace from file path using mapping
+                workspace_id = session_file.parts[-3]  # workspaceStorage/{workspace_id}/chatSessions/...
+                if workspace_id in workspace_mapping:
+                    session.workspace = workspace_mapping[workspace_id]
                 workspace_data.chat_sessions.append(session)
         
         # Look for chat editing session files (legacy format)
@@ -269,6 +327,10 @@ class CopilotParser:
         for session_file in base_path.glob(editing_session_pattern):
             session = self.parse_chat_editing_session(session_file)
             if session:
+                # Extract workspace from file path using mapping
+                workspace_id = session_file.parts[-4]  # workspaceStorage/{workspace_id}/chatEditingSessions/...
+                if workspace_id in workspace_mapping:
+                    session.workspace = workspace_mapping[workspace_id]
                 workspace_data.chat_sessions.append(session)
         
         self.logger.info(f"Discovered {len(workspace_data.chat_sessions)} chat sessions from {base_path}")
@@ -311,6 +373,7 @@ class CopilotParser:
             "total_messages": 0,
             "message_types": {},
             "session_types": {},
+            "workspace_activity": {},
             "date_range": {
                 "earliest": None,
                 "latest": None
@@ -329,13 +392,38 @@ class CopilotParser:
             agent = session.agent
             stats["agent_activity"][agent] = stats["agent_activity"].get(agent, 0) + 1
             
+            # Track workspace activity
+            workspace = session.workspace or "unknown_workspace"
+            if workspace not in stats["workspace_activity"]:
+                stats["workspace_activity"][workspace] = {
+                    "sessions": 0,
+                    "messages": 0,
+                    "first_seen": session.timestamp,
+                    "last_seen": session.timestamp
+                }
+            
+            workspace_stats = stats["workspace_activity"][workspace]
+            workspace_stats["sessions"] += 1
+            
+            # Update workspace date range
+            if session.timestamp < workspace_stats["first_seen"]:
+                workspace_stats["first_seen"] = session.timestamp
+            if session.timestamp > workspace_stats["last_seen"]:
+                workspace_stats["last_seen"] = session.timestamp
+            
             for message in session.messages:
                 stats["total_messages"] += 1
+                workspace_stats["messages"] += 1
                 
                 message_type = message.metadata.get('type', message.role)
                 stats["message_types"][message_type] = stats["message_types"].get(message_type, 0) + 1
                 
                 all_timestamps.append(message.timestamp)
+        
+        # Convert workspace timestamps to ISO format for JSON serialization
+        for workspace_info in stats["workspace_activity"].values():
+            workspace_info["first_seen"] = workspace_info["first_seen"].isoformat()
+            workspace_info["last_seen"] = workspace_info["last_seen"].isoformat()
         
         if all_timestamps:
             stats["date_range"]["earliest"] = min(all_timestamps).isoformat()

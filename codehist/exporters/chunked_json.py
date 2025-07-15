@@ -173,7 +173,7 @@ class ChunkedJSONExporter:
                 'session_id': session.session_id,
                 'agent': session.agent,
                 'timestamp': session.timestamp,
-                'workspace': session.workspace,
+                'workspace': session.workspace or 'unknown_workspace',
                 'message_count': len(session.messages),
                 'user_messages': len([m for m in session.messages if m.role == 'user']),
                 'assistant_messages': len([m for m in session.messages if m.role == 'assistant']),

@@ -141,6 +141,18 @@ def stats():
             for msg_type, count in stats["message_types"].items():
                 console.print(f"  • {msg_type}: {count}")
         
+        # Workspace activity
+        if stats.get("workspace_activity"):
+            console.print("\n[bold blue]Workspace Activity:[/bold blue]")
+            sorted_workspaces = sorted(
+                stats["workspace_activity"].items(), 
+                key=lambda x: x[1]["sessions"], 
+                reverse=True
+            )
+            for workspace, activity in sorted_workspaces:
+                workspace_name = workspace if workspace != "unknown_workspace" else "Unknown"
+                console.print(f"  • {workspace_name}: {activity['sessions']} sessions, {activity['messages']} messages")
+        
     except Exception as e:
         console.print(f"[red]Error getting statistics: {e}[/red]")
         raise typer.Exit(1)
@@ -231,6 +243,17 @@ def _display_chat_summary(stats: dict, search_results: list = None, verbose: boo
         console.print("\n[bold]Message types:[/bold]")
         for msg_type, count in stats["message_types"].items():
             console.print(f"  {msg_type}: {count}")
+    
+    if verbose and stats.get("workspace_activity"):
+        console.print("\n[bold]Workspaces:[/bold]")
+        sorted_workspaces = sorted(
+            stats["workspace_activity"].items(), 
+            key=lambda x: x[1]["sessions"], 
+            reverse=True
+        )
+        for workspace, activity in sorted_workspaces[:5]:  # Show top 5 workspaces
+            workspace_name = workspace if workspace != "unknown_workspace" else "Unknown"
+            console.print(f"  {workspace_name}: {activity['sessions']} sessions, {activity['messages']} messages")
     
     if search_results:
         console.print(f"\n[green]Search found {len(search_results)} matches[/green]")
