@@ -40,6 +40,8 @@ uv add <package>                             # Add new dependency
 uv remove <package>                          # Remove dependency
 ```
 
+**Virtual Environment**: Uses `.venv` directory for isolated Python environment managed by `uv`.
+
 ### Testing Commands
 ```bash
 uv run python -m codehist stats              # Show session count
