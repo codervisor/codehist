@@ -7,10 +7,10 @@ CodeHist extracts GitHub Copilot chat history from VS Code's JSON storage files.
 **Purpose**: Parse real chat conversations from `workspaceStorage/*/chatSessions/*.json`, not SQLite metadata.
 
 **Key Components**:
-- `models.py` - Dataclasses: `Message`, `ChatSession`, `WorkspaceData`
-- `parsers/copilot.py` - Single parser with cross-platform VS Code discovery
-- `exporters/` - Simple JSON/Markdown output
-- `cli.py` - Typer CLI with 3 commands: `stats`, `chat`, `search`
+- `codehist/models.py` - Dataclasses: `Message`, `ChatSession`, `WorkspaceData`
+- `codehist/parsers/copilot.py` - Single parser with cross-platform VS Code discovery
+- `codehist/exporters/` - Simple JSON/Markdown output
+- `codehist/cli.py` - Typer CLI with 3 commands: `stats`, `chat`, `search`
 
 ## Development SOPs
 
@@ -33,11 +33,18 @@ vscode_paths = [
 - `chatSessions/*.json` - Modern chat conversations
 - `chatEditingSessions/*/state.json` - Legacy editing sessions
 
+### Dependency Management
+```bash
+uv sync                                       # Install dependencies
+uv add <package>                             # Add new dependency
+uv remove <package>                          # Remove dependency
+```
+
 ### Testing Commands
 ```bash
-python -m codehist stats              # Show session count
-python -m codehist search "docker"    # Test search
-python -m codehist chat -o test.json  # Export validation
+uv run python -m codehist stats              # Show session count
+uv run python -m codehist search "docker"    # Test search
+uv run python -m codehist chat -o test.json  # Export validation
 ```
 
 ### File Organization

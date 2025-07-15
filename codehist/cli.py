@@ -12,6 +12,7 @@ from rich.table import Table
 
 from .parsers.copilot import CopilotParser
 from .exporters.json import JSONExporter
+from .exporters.chunked_json import ChunkedJSONExporter
 from .exporters.markdown import MarkdownExporter
 
 app = typer.Typer(
@@ -25,8 +26,10 @@ console = Console()
 @app.command()
 def chat(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
-    format: str = typer.Option("json", "--format", "-f", help="Output format (json, md)"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format (json, md, csv, parquet)"),
     search: Optional[str] = typer.Option(None, "--search", "-s", help="Search query for chat content"),
+    chunked: bool = typer.Option(False, "--chunked", "-c", help="Use chunked processing for large datasets"),
+    chunk_size: int = typer.Option(100, "--chunk-size", help="Number of sessions per chunk (default: 100)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed progress")
 ):
     """Extract and analyze GitHub Copilot chat history."""
@@ -63,14 +66,28 @@ def chat(
         # Output results
         if output:
             output_path = Path(output)
+            
             if format == "json":
-                exporter = JSONExporter()
-                exporter.export_data(result, output_path)
+                if chunked:
+                    if verbose:
+                        console.print("[yellow]Using chunked processing for large dataset...[/yellow]")
+                    exporter = ChunkedJSONExporter(chunk_size=chunk_size)
+                    exporter.export_data_chunked(result, output_path)
+                else:
+                    exporter = JSONExporter()
+                    exporter.export_data(result, output_path)
             elif format == "md":
                 exporter = MarkdownExporter()
                 exporter.export_chat_data(result, output_path)
+            elif format == "csv":
+                exporter = ChunkedJSONExporter()
+                exporter.export_sessions_to_csv(workspace_data, output_path, include_message_content=True)
+            elif format == "parquet":
+                exporter = ChunkedJSONExporter()
+                exporter.export_messages_to_parquet(workspace_data, output_path)
             else:
                 console.print(f"[red]Unsupported format: {format}[/red]")
+                console.print("[yellow]Supported formats: json, md, csv, parquet[/yellow]")
                 raise typer.Exit(1)
             
             console.print(f"[green]Chat data saved to {output_path}[/green]")
@@ -164,6 +181,35 @@ def search(
     
     except Exception as e:
         console.print(f"[red]Error searching: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def analyze(
+    file_path: str = typer.Argument(..., help="Path to JSON file to analyze"),
+    chunk_size: int = typer.Option(1000, "--chunk-size", help="Chunk size for analysis")
+):
+    """Analyze a large JSON export file."""
+    try:
+        from .exporters.chunked_json import analyze_json_file_chunks
+        
+        json_file = Path(file_path)
+        if not json_file.exists():
+            console.print(f"[red]File not found: {file_path}[/red]")
+            raise typer.Exit(1)
+        
+        console.print(f"[yellow]Analyzing {json_file.name}...[/yellow]")
+        analysis = analyze_json_file_chunks(json_file, chunk_size)
+        
+        if 'error' in analysis:
+            console.print(f"[red]Analysis failed: {analysis['error']}[/red]")
+        else:
+            console.print(f"[green]File size: {analysis.get('file_size_mb', 0):.1f} MB[/green]")
+            if analysis.get('contains_sessions'):
+                console.print("[green]✓ Contains chat session data[/green]")
+        
+    except Exception as e:
+        console.print(f"[red]Error analyzing file: {e}[/red]")
         raise typer.Exit(1)
 
 
